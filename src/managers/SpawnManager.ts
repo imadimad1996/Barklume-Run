@@ -12,6 +12,7 @@ interface TierData {
 
 export class SpawnManager {
   private timers: Phaser.Time.TimerEvent[] = [];
+  private laneLockUntil: number[] = Array(LANE_COUNT).fill(0);
 
   constructor(
     private scene: Phaser.Scene,
@@ -38,13 +39,9 @@ export class SpawnManager {
     this.timers = [];
   }
 
-  private chooseSafeLane(excludeDog = false): number {
-    const lanes = [...Array(LANE_COUNT).keys()];
-    if (excludeDog) {
-      const idx = lanes.indexOf(this.dogLane());
-      if (idx >= 0) lanes.splice(idx, 1);
-    }
-    return Phaser.Utils.Array.GetRandom(lanes);
+  private chooseLane(candidates: number[]): number | null {
+    if (!candidates.length) return null;
+    return Phaser.Utils.Array.GetRandom(candidates);
   }
 
   private spawnBones(): void {
@@ -57,25 +54,44 @@ export class SpawnManager {
   private spawnTraps(): void {
     const t = this.tier();
     if (Math.random() > t.obstacleDensity) return;
-    const safeLane = this.chooseSafeLane();
-    const laneChoices = [...Array(LANE_COUNT).keys()].filter((l) => l !== safeLane && l !== this.dogLane());
-    if (laneChoices.length < 1) return;
-    const lane = Phaser.Utils.Array.GetRandom(laneChoices);
+
+    const now = this.scene.time.now;
+    const currentDogLane = this.dogLane();
+
+    const viableTrapLanes = [...Array(LANE_COUNT).keys()].filter((lane) => {
+      if (lane === currentDogLane) return false;
+      return now >= this.laneLockUntil[lane];
+    });
+
+    if (viableTrapLanes.length < 1) return;
+
+    // Keep at least one safe lane open in the immediate horizon.
+    const safetyLane = Phaser.Utils.Array.GetRandom([...Array(LANE_COUNT).keys()]);
+    const trapLaneChoices = viableTrapLanes.filter((lane) => lane !== safetyLane);
+    const trapLane = this.chooseLane(trapLaneChoices.length ? trapLaneChoices : viableTrapLanes);
+    if (trapLane === null) return;
+
     const y = -80;
     const trap = Math.random() < 0.5
-      ? new TrapBanner(this.scene, getLaneX(lane), y)
-      : new TrapHole(this.scene, getLaneX(lane), y);
+      ? new TrapBanner(this.scene, getLaneX(trapLane), y)
+      : new TrapHole(this.scene, getLaneX(trapLane), y);
     this.groups.traps.add(trap);
 
+    this.laneLockUntil[trapLane] = now + GAME_TUNING.safeSpawnLeadTimeMs;
+
     if (Math.random() < t.movingTrashChance) {
-      const trashLane = this.chooseSafeLane(true);
-      this.groups.movingTrash.add(new TrashMoving(this.scene, getLaneX(trashLane), y - 120));
+      const trashLaneChoices = [...Array(LANE_COUNT).keys()].filter((lane) => lane !== currentDogLane && lane !== trapLane);
+      const trashLane = this.chooseLane(trashLaneChoices);
+      if (trashLane !== null) this.groups.movingTrash.add(new TrashMoving(this.scene, getLaneX(trashLane), y - 120));
     }
   }
 
   private spawnMagnet(): void {
     if (Math.random() > GAME_TUNING.spawnRates.magnetPerSecond) return;
-    const lane = this.chooseSafeLane();
+    const laneChoices = [...Array(LANE_COUNT).keys()].filter((lane) => lane !== this.dogLane());
+    const lane = this.chooseLane(laneChoices);
+    if (lane === null) return;
+
     const mag = this.scene.physics.add.sprite(getLaneX(lane), -30, 'magnet');
     this.groups.magnets.add(mag);
   }

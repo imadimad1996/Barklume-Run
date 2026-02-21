@@ -106,10 +106,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private collectBone(bone: Bone): void {
+    if (!bone.active || bone.isCollected) return;
+    bone.isCollected = true;
     bone.destroy();
+
     const now = this.time.now;
     if (now - this.lastBoneAt < GAME_TUNING.comboGapMs) this.combo = Math.min(8, this.combo + 0.2);
     else this.combo = 1;
+
     this.lastBoneAt = now;
     const base = bone.isGolden ? 25 : 6;
     this.score += Math.round(base * this.combo);
@@ -123,6 +127,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private collectMagnet(magnet: Phaser.Physics.Arcade.Sprite): void {
+    if (!magnet.active) return;
     magnet.destroy();
     this.magnetUntil = this.time.now + GAME_TUNING.magnetDurationMs;
     this.audioManager.playMagnet();
@@ -132,19 +137,33 @@ export class GameScene extends Phaser.Scene {
   private magnetPull(): void {
     this.bones.getChildren().forEach((obj) => {
       const bone = obj as Bone;
+      if (!bone.active || bone.isCollected || bone.isMagnetized) return;
+
       const dist = Phaser.Math.Distance.Between(bone.x, bone.y, this.dog.x, this.dog.y);
       if (dist > GAME_TUNING.magnetRadius) return;
-      this.tweens.add({ targets: bone, x: this.dog.x, y: this.dog.y - 20, duration: 220, ease: 'Sine.In', onComplete: () => this.collectBone(bone) });
+
+      bone.isMagnetized = true;
+      this.tweens.add({
+        targets: bone,
+        x: this.dog.x,
+        y: this.dog.y - 20,
+        duration: 220,
+        ease: 'Sine.In',
+        onComplete: () => this.collectBone(bone),
+      });
     });
   }
 
   private checkNearMiss(): void {
     if (this.time.now < this.nearMissCooldownUntil) return;
+
     const near = [...this.traps.getChildren(), ...this.movingTrash.getChildren()].some((o) => {
       const s = o as Phaser.GameObjects.Sprite;
       return Math.abs(s.y - this.dog.y) < 38 && Math.abs(s.x - this.dog.x) < GAME_TUNING.closeCallDistance;
     });
+
     if (!near) return;
+
     this.nearMissCooldownUntil = this.time.now + GAME_TUNING.closeCallCooldownMs;
     this.cameras.main.shake(120, 0.003);
     this.audioManager.playNearMiss();
@@ -159,6 +178,7 @@ export class GameScene extends Phaser.Scene {
       this.audioManager.playCat();
       this.time.delayedCall(300 + i * 120, () => cat.flee());
     }
+
     const dropBoneCluster = Math.random() < 0.75;
     if (dropBoneCluster) {
       for (let i = 0; i < 4; i++) {

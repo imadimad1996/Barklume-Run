@@ -34,6 +34,14 @@ export class SaveManager {
     this.state = this.load();
   }
 
+  private defaultMissions(): MissionState[] {
+    return [
+      { id: 'collect_bones', progress: 0, target: GAME_TUNING.missions.collectBonesTarget },
+      { id: 'use_magnet', progress: 0, target: GAME_TUNING.missions.useMagnetTarget },
+      { id: 'survive', progress: 0, target: GAME_TUNING.missions.surviveSecondsTarget },
+    ];
+  }
+
   private defaultState(): SaveState {
     return {
       version: 1,
@@ -42,11 +50,7 @@ export class SaveManager {
       settings: { controlMode: 'swipe', soundOn: true },
       daily: {
         missionsDate: todayKey(),
-        missions: [
-          { id: 'collect_bones', progress: 0, target: GAME_TUNING.missions.collectBonesTarget },
-          { id: 'use_magnet', progress: 0, target: GAME_TUNING.missions.useMagnetTarget },
-          { id: 'survive', progress: 0, target: GAME_TUNING.missions.surviveSecondsTarget },
-        ],
+        missions: this.defaultMissions(),
         rewardClaimDate: null,
       },
       cosmetics: { blueBandanaUnlocked: false },
@@ -54,13 +58,35 @@ export class SaveManager {
   }
 
   private load(): SaveState {
+    const fallback = this.defaultState();
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return this.defaultState();
+    if (!raw) return fallback;
+
     try {
-      const parsed = JSON.parse(raw) as SaveState;
-      return { ...this.defaultState(), ...parsed };
+      const parsed = JSON.parse(raw) as Partial<SaveState>;
+      return {
+        ...fallback,
+        ...parsed,
+        settings: {
+          ...fallback.settings,
+          ...parsed.settings,
+        },
+        daily: {
+          ...fallback.daily,
+          ...parsed.daily,
+          missions: this.defaultMissions().map((base) => {
+            const persisted = parsed.daily?.missions?.find((m) => m.id === base.id);
+            if (!persisted) return base;
+            return { ...base, progress: Math.min(base.target, Math.max(0, persisted.progress ?? 0)) };
+          }),
+        },
+        cosmetics: {
+          ...fallback.cosmetics,
+          ...parsed.cosmetics,
+        },
+      };
     } catch {
-      return this.defaultState();
+      return fallback;
     }
   }
 
@@ -71,7 +97,7 @@ export class SaveManager {
   refreshDailyIfNeeded(): void {
     if (this.state.daily.missionsDate === todayKey()) return;
     this.state.daily.missionsDate = todayKey();
-    this.state.daily.missions.forEach((m) => (m.progress = 0));
+    this.state.daily.missions = this.defaultMissions();
     this.persist();
   }
 

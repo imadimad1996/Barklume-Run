@@ -2,6 +2,9 @@ import Phaser from 'phaser';
 
 export class Bone extends Phaser.Physics.Arcade.Sprite {
   isGolden: boolean;
+  isMagnetized = false;
+  isCollected = false;
+
   constructor(scene: Phaser.Scene, x: number, y: number, golden = false) {
     super(scene, x, y, golden ? 'bone-golden' : 'bone');
     this.isGolden = golden;
